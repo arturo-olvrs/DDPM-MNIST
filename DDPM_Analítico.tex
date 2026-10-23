@@ -1,0 +1,431 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish,es-nodecimaldot]{babel}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb,amsfonts,amsthm,mathtools}
+\usepackage{cancel}
+
+% Configuración de operadores matemáticos frecuentes
+\DeclareMathOperator{\E}{\mathbb{E}}
+\DeclareMathOperator{\Var}{Var}
+\DeclareMathOperator{\Cov}{Cov}
+\DeclareMathOperator{\DKL}{\mathcal{D}_{\mathrm{KL}}}
+
+\title{\vspace{-1.5cm}\textbf{\Huge DDPM Analítico}\\[0.3em]
+\Large Un modelo analíticamente resoluble con mezclas de gaussianas}
+\author{\textbf{Arturo Olivares Martos}}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+En un modelo probabilístico de difusión estándar (DDPM), la distribución original de los datos $p_{\text{data}}$ suele ser intratable analíticamente (por ejemplo, el espacio de imágenes naturales), obligando a recurrir a redes neuronales para aproximar las distribuciones inversas. En este documento estudiamos un caso particular unidimensional donde la distribución inicial $x_0$ es una mezcla explícita de dos gaussianas. Gracias a las propiedades de las variables normales, todo el proceso de difusión —tanto hacia adelante como inverso— se puede resolver de manera exacta y en forma cerrada, permitiendo entender la mecánica interna del DDPM sin recurrir a optimización numérica ni redes neuronales.
+\end{abstract}
+
+\section{Planteamiento del Modelo}
+
+Consideramos que el dato inicial $x_0 \in \mathbb{R}$ proviene de una mezcla de dos\footnote{Notemos que esta idea se puede generalizar de manera directa a $n$ distribuciones normales.} distribuciones normales:
+\[
+x_0 \sim \sum_{k=1}^{2} w_k\,\mathcal{N}\left(m_k, s_k^2\right),
+\]
+donde $w_1, w_2 > 0$ son los pesos con $w_1 + w_2 = 1$, y cada componente $k \in \{1, 2\}$ tiene media $m_k \in \mathbb{R}$ y varianza $s_k^2 > 0$. De forma equivalente, introducimos una variable aleatoria discreta $K \in \{1, 2\}$ que selecciona la componente activa, tal que:
+\[
+P(K = k) = w_k \quad \text{y} \quad (x_0 \mid K = k) \sim \mathcal{N}\left(m_k, s_k^2\right).
+\]
+
+El objetivo en este escenario simplificado refleja exactamente el de cualquier modelo de difusión:
+\begin{enumerate}
+    \item \textbf{Proceso hacia adelante (\textit{Forward process}):} Partir del dato limpio $x_0$ y añadirle ruido gaussiano progresivamente hasta que, en el paso final $L$, sea indistinguible de una normal estándar:
+    \[
+    x_L \sim \mathcal{N}(0, 1).
+    \]
+    
+    \item \textbf{Proceso inverso (\textit{Reverse process} o generación):} Partir de ruido puro $x_L \sim \mathcal{N}(0, 1)$ y deshacer el ruido paso a paso ($x_L \to x_{L-1} \to \dots \to x_0$) para obtener una nueva muestra coherente con la mezcla original.
+\end{enumerate}
+
+Al conocer la expresión analítica de $p(x_0)$, podemos derivar cada paso del proceso inverso de forma exacta.
+
+%----------------------------------------------------------------------
+\section{Proceso hacia adelante (\textit{Forward Process})}
+%----------------------------------------------------------------------
+
+\subsection{Definición y transición en un solo paso}
+
+El proceso de difusión añade ruido paso a paso según una cadena de Markov. Para cada instante $i \in \{1, \dots, L\}$, la transición viene dada por:
+\[
+p(x_i \mid x_{i-1}) = \mathcal{N}\left(x_i;\; \alpha_i x_{i-1},\; \beta_i^2\right) \iff x_i = \alpha_i x_{i-1} + \beta_i \epsilon_i, \quad \epsilon_i \sim \mathcal{N}(0, 1),
+\]
+donde $\{\beta_i\}_{i=1}^L \subset \left]0, 1\right[$ constituye el esquema de ruido (\textit{noise schedule}) prefijado, y $\alpha_i^2+\beta_i^2 = 1$ asegura que la varianza total se mantenga constante. Gracias a la estabilidad de la suma de variables normales independientes, la distribución directa de $x_i$ condicionado al estado original $x_0$ se obtiene en forma cerrada sin necesidad de iterar los $i$ pasos intermedios:
+\[
+x_i = \bar{\alpha}_i x_0 + \bar{\beta}_i\,\epsilon, \quad \epsilon \sim \mathcal{N}(0, 1),
+\]
+o equivalentemente:
+\[
+p(x_i \mid x_0) = \mathcal{N}\left(x_i;\; \bar{\alpha}_i x_0,\; \bar{\beta}_i^2\right),
+\]
+donde $\bar{\alpha}_i = \prod\limits_{j=1}^i \alpha_j$ y $\bar{\alpha}_i^2 + \bar{\beta}_i^2 = 1$.
+
+\subsection{Densidad marginal $p_i(x_i)$}
+
+Dado que $x_0$ es una mezcla de gaussianas, la distribución de $x_i$ en cualquier instante también lo es. Condicionando a la componente $K = k$:
+\[
+(x_i \mid K = k) = \bar{\alpha}_i (x_0 \mid K = k) + \bar{\beta}_i \epsilon.
+\]
+Como $(x_0 \mid K = k) \sim \mathcal{N}(m_k, s_k^2)$ y $\epsilon \sim \mathcal{N}(0, 1)$ son independientes, la combinación lineal es directamente gaussiana:
+\begin{align*}
+    \E[x_i \mid K = k] &= \bar{\alpha}_i \E[x_0 \mid K = k] + \bar{\beta}_i \E[\epsilon] = \bar{\alpha}_i m_k, \\
+    \Var(x_i \mid K = k) &= \bar{\alpha}_i^2 \Var(x_0 \mid K = k) + \bar{\beta}_i^2 \Var(\epsilon) = \bar{\alpha}_i^2 s_k^2 + \bar{\beta}_i^2.
+\end{align*}
+
+Por tanto, cada componente evoluciona como:
+\[
+p(x_i \mid K = k) = \mathcal{N}\left(x_i;\; \bar{\alpha}_i m_k,\; \bar{\alpha}_i^2 s_k^2 + \bar{\beta}_i^2\right).
+\]
+
+Aplicando el teorema de la probabilidad total, la densidad marginal de $x_i$ resulta:
+\[
+p_i(x_i) = \sum_{k=1}^2 P(K=k)\,p(x_i \mid K=k) = \sum_{k=1}^2 w_k\,\mathcal{N}\left(x_i;\; \bar{\alpha}_i m_k,\; \bar{\alpha}_i^2 s_k^2 + \bar{\beta}_i^2\right).
+\]
+Es decir, en cada paso $i$, \textbf{$x_i$ sigue siendo exactamente una mezcla de dos gaussianas} con los pesos originales $w_k$, pero cuyas medias y varianzas se van amortiguando y ruidificando conforme avanza el proceso.
+
+%----------------------------------------------------------------------
+\section{Proceso Inverso (\textit{Reverse Process})}
+%----------------------------------------------------------------------
+
+\subsection{Distribución inversa exacta $p(x_{i-1} \mid x_i)$}
+
+Por el teorema de Bayes aplicado a la cadena markoviana:
+\[
+p(x_{i-1} \mid x_i) = p(x_i \mid x_{i-1}) \frac{p_{i-1}(x_{i-1})}{p_i(x_i)}.
+\]
+A diferencia del caso con datos complejos, aquí conocemos todas las densidades marginales. Descomponiendo a través de la variable indicadora $K$:
+\[
+p(x_{i-1} \mid x_i) = \sum_{k=1}^2 \underbrace{P(K = k \mid x_i)}_{\tilde{w}_k(x_i)} \, p(x_{i-1} \mid x_i, K = k).
+\]
+Esto reduce el problema a dos elementos intuitivos:
+\begin{enumerate}
+    \item \textbf{Pesos a posteriori $\tilde{w}_k(x_i)$:} la probabilidad de que la observación $x_i$ provenga de la gaussiana $k$.
+    \item \textbf{Transición inversa por componente $p(x_{i-1} \mid x_i, K = k)$:} el paso inverso condicionado a saber qué gaussiana originó la trayectoria.
+\end{enumerate}
+
+\subsubsection{Pesos a posteriori $\tilde{w}_k(x_i)$}
+
+Aplicando la regla de Bayes clásica a la variable discreta $K$:
+\[
+\tilde{w}_k(x_i) = P(K = k \mid x_i) = \frac{P(K = k)\,p(x_i \mid K = k)}{p_i(x_i)}.
+\]
+Sustituyendo las expresiones halladas en la sección anterior:
+\[
+\tilde{w}_k(x_i) = \frac{w_k \, \mathcal{N}\left(x_i;\; \bar{\alpha}_i m_k,\; \bar{\alpha}_i^2 s_k^2 + \bar{\beta}_i^2\right)}{\sum\limits_{j=1}^2 w_j \, \mathcal{N}\left(x_i;\; \bar{\alpha}_j m_j,\; \bar{\alpha}_j^2 s_j^2 + \bar{\beta}_j^2\right)}.
+\]
+
+\subsubsection{Transición condicional por componente}
+
+Fijemos la componente $K = k$. Consideramos las dos variables condicionales:
+\[
+X \coloneqq (x_{i-1} \mid K = k) \quad \text{e} \quad Y \coloneqq (x_i \mid K = k).
+\]
+
+Nuestro objetivo es hallar la distribución condicional $p(X \mid Y = x_i)$, y esto será fácil de obtener una vez hayamos identificado la distribución conjunta $(X, Y)$. Partimos de $Z=(X, \epsilon_i)$. Puesto que $X$ y $\epsilon_i$ son independientes:
+\begin{equation*}
+  (X, \epsilon_i) \sim \mathcal{N}\left(\begin{pmatrix} \bar{\alpha}_{i-1} m_k \\ 0 \end{pmatrix},\; \begin{pmatrix} \bar{\alpha}_{i-1}^2 s_k^2 + \bar{\beta}_{i-1}^2 & 0 \\ 0 & 1 \end{pmatrix}\right).
+\end{equation*}
+
+Puesto que $Y = \alpha_i X + \beta_i \epsilon_i$, el vector $(X, Y)$ es una transformación lineal de $(X, \epsilon_i)$:
+\[
+\begin{pmatrix} X \\ Y \end{pmatrix} = \begin{pmatrix} 1 & 0 \\ \alpha_i & \beta_i \end{pmatrix} \begin{pmatrix} X \\ \epsilon_i \end{pmatrix}.
+\]
+
+Por propiedades de las transformaciones lineales de variables normales, $(X, Y)$ es también normal bivariada $(X,Y)\sim \mathcal{N}(\mu, \Sigma)$. Para determinar la matriz de covarianza $\Sigma$, es necesario calcular en primer lugar la covarianza entre $X$ y $Y$:
+\begin{align*}
+  \Cov(X, Y) &= \Cov(X, \alpha_i X + \beta_i \epsilon_i) = \alpha_i \Var(X) + \beta_i \Cov(X, \epsilon_i) = \alpha_i \Var(X),
+\end{align*}
+
+Por tanto:
+\begin{align*}
+  \mu &= \begin{pmatrix} \bar{\alpha}_{i-1} m_k \\ \bar{\alpha}_i m_k \end{pmatrix}, &\Sigma &= \begin{pmatrix} \bar{\alpha}_{i-1}^2 s_k^2 + \bar{\beta}_{i-1}^2 & \alpha_i (\bar{\alpha}_{i-1}^2 s_k^2 + \bar{\beta}_{i-1}^2) \\ \alpha_i (\bar{\alpha}_{i-1}^2 s_k^2 + \bar{\beta}_{i-1}^2) & \bar{\alpha}_i^2 s_k^2 + \bar{\beta}_i^2 \end{pmatrix}.
+\end{align*}
+
+Dado que el par es normal bivariado, la distribución condicional de $X$ dado $Y = x_i$ es normal univariada:
+\[
+(X \mid Y = x_i) \sim \mathcal{N}\left(\mu_{i-1\mid i, k}(x_i), \; \sigma_{i-1\mid i, k}^2\right),
+\]
+cuyos parámetros vienen dados por:
+\begin{align*}
+    \mu_{i-1\mid i, k}(x_i) &= \E[X] + \frac{\Cov(X, Y)}{\Var(Y)}\big(x_i - \E[Y]\big) \\
+    &= \bar{\alpha}_{i-1} m_k + \frac{\alpha_i \Var(X)}{\Var(Y)}\left(x_i - \bar{\alpha}_i m_k\right), \\[0.6em]
+    \sigma_{i-1\mid i, k}^2 &= \Var(X) - \frac{\Cov(X, Y)^2}{\Var(Y)} = \Var(X)\left[1 - \frac{\alpha_i^2 \Var(X)}{\Var(Y)}\right].
+\end{align*}
+
+Sustituyendo $\Var(X) = \bar{\alpha}_{i-1}^2 s_k^2 + \bar{\beta}_{i-1}^2$ y $\Var(Y) = \bar{\alpha}_i^2 s_k^2 + \bar{\beta}_i^2$, se obtienen exactamente las expresiones analíticas deseadas.
+
+\subsubsection{Conclusión sobre el paso inverso exacto}
+
+Combinando ambas partes, la distribución inversa global es:
+\[
+p(x_{i-1} \mid x_i) = \sum_{k=1}^2 \tilde{w}_k(x_i) \, \mathcal{N}\left(x_{i-1};\; \mu_{i-1\mid i, k}(x_i),\; \sigma_{i-1\mid i, k}^2\right).
+\]
+
+La distribución inversa exacta $p(x_{i-1} \mid x_i)$ \textbf{no es una gaussiana simple}, sino una mezcla ponderada de dos normales. Sin embargo, en la formulación clásica de los DDPM se asume que las transiciones inversas $p_\phi(x_{i-1} \mid x_i)$ son gaussianas univariadas. Analizamos a continuación dicha aproximación.
+
+%----------------------------------------------------------------------
+\subsection{Aproximación gaussiana $p_\phi(x_{i-1} \mid x_i)$ vía divergencia KL}
+%----------------------------------------------------------------------
+
+Como hemos visto, la distribución inversa verdadera $p(x_{i-1} \mid x_i)$ es una mezcla de dos gaussianas y, por tanto, no es gaussiana. Sin embargo, en el algoritmo estándar de DDPM se impone que las transiciones inversas pertenezcan a una familia paramétrica normal:
+\[
+p_\phi(x_{i-1} \mid x_i) = \mathcal{N}\left(x_{i-1};\; \mu_\phi(x_i, i),\; \sigma^2(i)\right),
+\]
+donde la varianza $\sigma^2(i)$ se fija de antemano y la media $\mu_\phi(x_i, i)$ es la función que se desea ajustar.
+
+El objetivo es determinar la media óptima $\mu^*(x_i)$ que hace que la aproximación $p_\phi$ sea lo más cercana posible a la distribución real $p$ en el sentido de la divergencia de Kullback-Leibler:
+\[
+\mu^*(x_i) = \arg\min_{\mu_\phi} \DKL\Big(p(\cdot \mid x_i) \;\Big\|\; p_\phi(\cdot \mid x_i)\Big).
+\]
+
+Desarrollando la definición de la divergencia KL sobre la variable $u$ (que representa los posibles valores de $x_{i-1}$):
+\begin{align*}
+    \DKL\Big(p(\cdot \mid x_i) \;\Big\|\; p_\phi(\cdot \mid x_i)\Big) 
+    &= \int_{-\infty}^\infty p(u \mid x_i) \log \frac{p(u \mid x_i)}{p_\phi(u \mid x_i)} \, du \\
+    &= \int_{-\infty}^\infty p(u \mid x_i) \log p(u \mid x_i) \, du - \int_{-\infty}^\infty p(u \mid x_i) \log p_\phi(u \mid x_i) \, du \\
+    &= -H\big(p(\cdot \mid x_i)\big) - \int_{-\infty}^\infty p(u \mid x_i) \log p_\phi(u \mid x_i) \, du.
+\end{align*}
+
+Obsérvese que:
+\begin{itemize}
+    \item El término de entropía $-H(p(\cdot \mid x_i))$ depende exclusivamente de la distribución verdadera $p$, por lo que es constante respecto a $\mu_\phi$.
+    \item La densidad de la distribución gaussiana aproximada satisface:
+    \[
+    \log p_\phi(u \mid x_i) = -\frac{1}{2}\log\big(2\pi\sigma^2(i)\big) - \frac{(u - \mu_\phi)^2}{2\sigma^2(i)}.
+    \]
+\end{itemize}
+
+Sustituyendo esta expresión en la segunda integral obtenemos:
+\[
+-\int_{-\infty}^\infty p(u \mid x_i) \log p_\phi(u \mid x_i) \, du = \frac{1}{2}\log\big(2\pi\sigma^2(i)\big) + \frac{1}{2\sigma^2(i)} \int_{-\infty}^\infty (u - \mu_\phi)^2 \, p(u \mid x_i) \, du.
+\]
+
+Puesto que $\sigma^2(i)$ es una constante prefijada, los únicos términos que varían con $\mu_\phi$ son los que involucran la integral del error cuadrático. Por tanto, minimizar la divergencia KL equivale exactamente a resolver:
+\[
+\mu^*(x_i) = \arg\min_{\mu_\phi} \E\Big[(x_{i-1} - \mu_\phi)^2 \Bigm| x_i\Big].
+\]
+
+Para resolver este problema de minimización, definimos la función objetivo:
+\[
+\mathcal{L}(\mu_\phi) = \E\Big[(x_{i-1} - \mu_\phi)^2 \Bigm| x_i\Big] = \E\big[x_{i-1}^2 \mid x_i\big] - 2\mu_\phi\,\E[x_{i-1} \mid x_i] + \mu_\phi^2.
+\]
+
+Se trata de una función estrictamente convexa en $\mu_\phi$ (una parábola con coeficiente principal positivo). Su mínimo global se obtiene igualando su derivada a cero:
+\[
+\frac{d\mathcal{L}}{d\mu_\phi} = -2\E[x_{i-1} \mid x_i] + 2\mu_\phi = 0 \implies \mu^*(x_i) = \E[x_{i-1} \mid x_i].
+\]
+
+La media óptima de la aproximación gaussiana coincide exactamente con la \textbf{esperanza condicional verdadera} del estado anterior dado el actual, $\E[x_{i-1} \mid x_i]$.
+Finalmente, como $p(x_{i-1} \mid x_i)$ es una mezcla de dos gaussianas con pesos $\tilde{w}_k(x_i)$ y medias condicionales $\mu_{i-1\mid i, k}(x_i)$, tenemos que
+\begin{align*}
+    \E[x_{i-1} \mid x_i] &= \sum_{k=1}^2 P(K = k \mid x_i) \, \E[x_{i-1} \mid x_i, K = k] = \sum_{k=1}^2 \tilde{w}_k(x_i) \, \mu_{i-1\mid i, k}(x_i).
+\end{align*}
+
+Como podemos ver, la media óptima de la aproximación gaussiana es una combinación ponderada de las medias condicionales de cada componente, con los pesos a posteriori $\tilde{w}_k(x_i)$.
+
+
+%----------------------------------------------------------------------
+\section{Simulación del Proceso Inverso: Mezcla Verdadera frente a Aproximación Normal}
+%----------------------------------------------------------------------
+
+Una vez determinadas tanto la distribución inversa exacta $p(x_{i-1} \mid x_i)$ como su aproximación gaussiana óptima $p_\phi(x_{i-1} \mid x_i)$, surge de forma natural la siguiente cuestión: \textit{¿cuál es el efecto de utilizar una u otra para generar nuevas muestras a partir de ruido puro $x_L \sim \mathcal{N}(0, 1)$, y bajo qué condiciones ambas dinámicas resultan prácticamente idénticas?}
+
+%----------------------------------------------------------------------
+\subsection{Comportamiento de la simulación según la transición empleada}
+%----------------------------------------------------------------------
+
+\begin{enumerate}
+    \item \textbf{Muestreo con la distribución verdadera (mezcla finita):}
+    En cada paso inverso notado por $i \to i-1$, el muestreo bajo $p(x_{i-1} \mid x_i)$ se realiza en dos etapas elementales:
+    \begin{enumerate}
+        \item Se muestrea la variable discreta $K \in \{1, 2\}$ con probabilidades dadas por los pesos a posteriori $\tilde{w}_k(x_i) = P(K = k \mid x_i)$.
+        \item Se extrae el nuevo valor a partir de la componente gaussiana seleccionada:
+        \[
+        x_{i-1} \sim \mathcal{N}\left(\mu_{i-1\mid i, K}(x_i), \; \sigma_{i-1\mid i, K}^2\right).
+        \]
+    \end{enumerate}
+    Dado que en cada instante se muestrea exactamente de la distribución inversa real de la cadena de Markov, al completar los $L$ pasos se obtiene una muestra cuya distribución marginal en $i = 0$ coincide de forma exacta con la mezcla original $x_0$.
+
+    \item \textbf{Muestreo con la aproximación unimodal $p_\phi$:}
+    Al sustituir en cada paso la mezcla por una única normal centrada en la media condicional $\mu^*(x_i)$, surgen el fenómeno del \textbf{promediado de modas} (\textit{mode averaging}). Este se refiere a que, si en pasos intermedios de difusión el estado $x_i$ se sitúa en una región de ambigüedad donde ambas componentes son equiprobables ($\tilde{w}_1(x_i) \approx \tilde{w}_2(x_i) \approx 0.5$), la media $\mu^*(x_i)$ se ubica en el promedio aritmético de las medias de cada rama. Esto genera muestras en la zona central entre ambas campanas (el valle de baja densidad de la mezcla real).
+\end{enumerate}
+
+%----------------------------------------------------------------------
+\subsection{¿Cuándo son prácticamente idénticas ambas distribuciones?}
+%----------------------------------------------------------------------
+
+La mezcla de dos gaussianas $p(x_{i-1} \mid x_i)$ y la aproximación unimodal $p_\phi(x_{i-1} \mid x_i)$ resultan indistinguibles en dos regímenes fundamentales:
+
+\subsubsection{Certeza a posteriori ($\tilde{w}_1(x_i) \to 1$ o $\tilde{w}_2(x_i) \to 1$)}
+Cuando el punto observado $x_i$ está suficientemente alejado de la frontera de decisión entre las dos componentes, el peso de una de ellas domina completamente. En ese caso, la mezcla colapsa de forma trivial a una sola normal:
+\[
+\tilde{w}_k(x_i) \approx 1 \implies \mu^*(x_i) \approx \mu_{i-1\mid i, k}(x_i),
+\]
+y la segunda componente queda anulada. Esto sucede de forma natural en los últimos pasos del proceso inverso ($i \to 0$), cuando el nivel de ruido residual es reducido y la trayectoria ya se ha decantado nítidamente hacia uno de los dos modos de la distribución original. Veamos no obstante el valor de $x_i^*$ frontera, donde ambos pesos son iguales ($\tilde{w}_1(x_i^*) = \tilde{w}_2(x_i^*) = 0.5$). Igualando las expresiones de los pesos a posteriori:
+\[
+w_1 \, \mathcal{N}\left(x_i^*;\; \bar{\alpha}_i m_1,\; \bar{\alpha}_i^2 s_1^2 + \bar{\beta}_i^2\right) = w_2 \, \mathcal{N}\left(x_i^*;\; \bar{\alpha}_i m_2,\; \bar{\alpha}_i^2 s_2^2 + \bar{\beta}_i^2\right).
+\]
+Sustituyendo la función de densidad gaussiana:
+\[
+\frac{w_1}{\sqrt{2\pi(\bar{\alpha}_i^2 s_1^2 + \bar{\beta}_i^2)}} \exp\left[-\frac{(x_i^* - \bar{\alpha}_i m_1)^2}{2(\bar{\alpha}_i^2 s_1^2 + \bar{\beta}_i^2)}\right] = \frac{w_2}{\sqrt{2\pi(\bar{\alpha}_i^2 s_2^2 + \bar{\beta}_i^2)}} \exp\left[-\frac{(x_i^* - \bar{\alpha}_i m_2)^2}{2(\bar{\alpha}_i^2 s_2^2 + \bar{\beta}_i^2)}\right].
+\]
+
+Tomando logaritmos neperianos:
+\begin{align*}
+\frac{(x_i^* - \bar{\alpha}_i m_1)^2}{\bar{\alpha}_i^2 s_1^2 + \bar{\beta}_i^2} - \frac{(x_i^* - \bar{\alpha}_i m_2)^2}{\bar{\alpha}_i^2 s_2^2 + \bar{\beta}_i^2} &= \ln\left( \frac{w_1^2 \, (\bar{\alpha}_i^2 s_2^2 + \bar{\beta}_i^2)}{w_2^2 \, (\bar{\alpha}_i^2 s_1^2 + \bar{\beta}_i^2)} \right).
+\end{align*}
+Desarrollando los cuadrados y agrupando según las potencias de $x_i^*$, se obtiene la ecuación cuadrática general $A(x_i^*)^2 + Bx_i^* + C = 0$, con:
+\begin{align*}
+A &= \frac{1}{\bar{\alpha}_i^2 s_1^2 + \bar{\beta}_i^2} - \frac{1}{\bar{\alpha}_i^2 s_2^2 + \bar{\beta}_i^2}, \\
+B &= -2 \bar{\alpha}_i \left( \frac{m_1}{\bar{\alpha}_i^2 s_1^2 + \bar{\beta}_i^2} - \frac{m_2}{\bar{\alpha}_i^2 s_2^2 + \bar{\beta}_i^2} \right), \\
+C &= \bar{\alpha}_i^2 \left( \frac{m_1^2}{\bar{\alpha}_i^2 s_1^2 + \bar{\beta}_i^2} - \frac{m_2^2}{\bar{\alpha}_i^2 s_2^2 + \bar{\beta}_i^2} \right) - \ln\left( \frac{w_1^2 \, (\bar{\alpha}_i^2 s_2^2 + \bar{\beta}_i^2)}{w_2^2 \, (\bar{\alpha}_i^2 s_1^2 + \bar{\beta}_i^2)} \right),
+\end{align*}
+cuyo valor frontera $x_i^*$ viene dado por la raíz de la fórmula cuadrática que cae en la región comprendida entre ambas componentes.
+En el caso habitual de varianzas idénticas ($s_1^2 = s_2^2 = s^2$), los denominadores coinciden y la ecuación pasa a ser lineal, resultando de forma exacta en:
+\[
+x_i^* = \bar{\alpha}_i \left(\frac{m_1 + m_2}{2}\right) - \frac{\bar{\alpha}_i^2 s^2 + \bar{\beta}_i^2}{\bar{\alpha}_i (m_1 - m_2)} \ln\left(\frac{w_1}{w_2}\right).
+\]
+
+En el caso de varianzas iguales $s_1^2 = s_2^2 = s^2$, la ecuación se simplifica a una lineal:
+\begin{gather*}
+    -2 \bar{\alpha}_i \dfrac{m_1 - m_2}{\bar{\alpha}_i^2 s^2 + \bar{\beta}_i^2} x_i^* + \bar{\alpha}_i^2 \dfrac{m_1^2 - m_2^2}{\bar{\alpha}_i^2 s^2 + \bar{\beta}_i^2} - \ln\left(\frac{w_1^2}{w_2^2}\right) = 0,\\
+    x_i^* = \frac{\bar{\alpha}_i (m_1 + m_2)}{2} - \frac{\bar{\alpha}_i^2 s^2 + \bar{\beta}_i^2}{2\bar{\alpha}_i (m_1 - m_2)} \ln\left(\frac{w_1^2}{w_2^2}\right).
+\end{gather*}
+
+\subsubsection{Régimen de paso infinitesimal ($\beta_i^2 \to 0$)}
+Incluso en las zonas donde ambos pesos compiten ($\tilde{w}_1 \approx \tilde{w}_2$), ambas campanas se solapan casi por completo si el paso de ruido $\beta_i$ es suficientemente pequeño. A continuación justificamos analíticamente este hecho mediante una cota superior explícita sobre la distancia entre las medias de ambas componentes.\\
+
+Recordemos la expresión de la media de cada componente condicionada a $K = k$:
+\begin{align*}
+    \mu_{i-1\mid i, k}(x_i) &= \bar{\alpha}_{i-1} m_k + \frac{\alpha_i \Var(X)}{\Var(Y)}\left(x_i - \bar{\alpha}_i m_k\right),
+\end{align*}
+donde, para la componente $k$, las varianzas marginales en los pasos $i-1$ e $i$ son:
+\[
+\Var(X) = \bar{\alpha}_{i-1}^2 s_k^2 + \bar{\beta}_{i-1}^2 \quad \text{y} \quad \Var(Y) = \bar{\alpha}_i^2 s_k^2 + \bar{\beta}_i^2.
+\]
+
+Reorganizamos en primer lugar los términos de $\mu_{i-1\mid i, k}(x_i)$ separando lo que multiplica a la observación $x_i$ de lo que multiplica a la media de la componente $m_k$:
+\begin{align*}
+    \mu_{i-1\mid i, k}(x_i) &= \frac{\alpha_i \Var(X)}{\Var(Y)}\, x_i + \left(\bar{\alpha}_{i-1} - \frac{\alpha_i \Var(X)}{\Var(Y)}\, \bar{\alpha}_i\right) m_k \\
+    &= \frac{\alpha_i \Var(X)}{\Var(Y)}\, x_i + \bar{\alpha}_{i-1} \left(1 - \frac{\alpha_i^2 \Var(X)}{\Var(Y)}\right) m_k \\
+    &= \frac{\alpha_i \Var(X)}{\Var(Y)}\, x_i + \bar{\alpha}_{i-1} \left(\frac{\Var(Y) - \alpha_i^2 \Var(X)}{\Var(Y)}\right) m_k.
+\end{align*}
+
+Analicemos en detalle el numerador del segundo paréntesis. Sustituyendo las varianzas explícitas:
+\begin{align*}
+    \Var(Y) - \alpha_i^2 \Var(X) &= \left(\bar{\alpha}_i^2 s_k^2 + \bar{\beta}_i^2\right) - \alpha_i^2 \left(\bar{\alpha}_{i-1}^2 s_k^2 + \bar{\beta}_{i-1}^2\right) \\
+    &= \cancel{\bar{\alpha}_i^2 s_k^2} + \bar{\beta}_i^2 - \cancel{\bar{\alpha}_i^2 s_k^2} - \alpha_i^2 \bar{\beta}_{i-1}^2 \\
+    &= \bar{\beta}_i^2 - \alpha_i^2 \bar{\beta}_{i-1}^2.
+\end{align*}
+
+Para simplificar la diferencia $\bar{\beta}_i^2 - \alpha_i^2 \bar{\beta}_{i-1}^2$, relacionamos en primer lugar la varianza acumulada en el paso actual, $\bar{\beta}_i^2$, con la del paso anterior, $\bar{\beta}_{i-1}^2$. Puesto que en el modelo se define $\bar{\alpha}_i = \alpha_i \bar{\alpha}_{i-1}$, elevando al cuadrado tenemos $\bar{\alpha}_i^2 = \alpha_i^2 \bar{\alpha}_{i-1}^2$. Utilizando la condición de conservación de varianza total $\bar{\alpha}_i^2 + \bar{\beta}_i^2 = 1$:
+\begin{align*}
+    \bar{\beta}_i^2 &= 1 - \bar{\alpha}_i^2
+    = 1 - \alpha_i^2 \bar{\alpha}_{i-1}^2
+    = 1 - (1 - \beta_i^2)\bar{\alpha}_{i-1}^2
+    = 1 - \bar{\alpha}_{i-1}^2 + \beta_i^2 \bar{\alpha}_{i-1}^2
+    = \bar{\beta}_{i-1}^2 + \beta_i^2 \bar{\alpha}_{i-1}^2.
+\end{align*}
+
+Con esta relación, calculamos directamente la diferencia que aparece en el numerador:
+\begin{align*}
+    \bar{\beta}_i^2 - \alpha_i^2 \bar{\beta}_{i-1}^2 &= \left(\bar{\beta}_{i-1}^2 + \beta_i^2 \bar{\alpha}_{i-1}^2\right) - (1 - \beta_i^2)\bar{\beta}_{i-1}^2
+    = \cancel{\bar{\beta}_{i-1}^2} + \beta_i^2 \bar{\alpha}_{i-1}^2 - \cancel{\bar{\beta}_{i-1}^2} + \beta_i^2 \bar{\beta}_{i-1}^2 \\
+    &= \beta_i^2 \left(\bar{\alpha}_{i-1}^2 + \bar{\beta}_{i-1}^2\right) 
+    = \beta_i^2,
+\end{align*}
+
+Por tanto, la media condicional de la componente $k$ se descompone de forma exacta en:
+\[
+\mu_{i-1\mid i, k}(x_i) = \alpha_i \left(\frac{\Var(X)}{\Var(Y)}\right) x_i + \beta_i^2 \left(\frac{\bar{\alpha}_{i-1}}{\Var(Y)}\right) m_k.
+\]
+
+Para comparar $\mu_{i-1\mid i, 1}(x_i)$ y $\mu_{i-1\mid i, 2}(x_i)$, denotamos para cada $k \in \{1, 2\}$:
+\[
+\Var(X_k) = \bar{\alpha}_{i-1}^2 s_k^2 + \bar{\beta}_{i-1}^2 \quad \text{y} \quad \Var(Y_k) = \bar{\alpha}_i^2 s_k^2 + \bar{\beta}_i^2.
+\]
+Restando ambas expresiones:
+\begin{align*}
+    \mu_{i-1\mid i, 1}(x_i) - \mu_{i-1\mid i, 2}(x_i) &= \alpha_i \left( \frac{\Var(X_1)}{\Var(Y_1)} - \frac{\Var(X_2)}{\Var(Y_2)} \right) x_i  + \beta_i^2 \bar{\alpha}_{i-1} \left( \frac{m_1}{\Var(Y_1)} - \frac{m_2}{\Var(Y_2)} \right).
+\end{align*}
+
+Centrémonos en la resta de fracciones que acompaña a $x_i$:
+\[
+\frac{\Var(X_1)}{\Var(Y_1)} - \frac{\Var(X_2)}{\Var(Y_2)} = \frac{\Var(X_1)\Var(Y_2) - \Var(X_2)\Var(Y_1)}{\Var(Y_1)\Var(Y_2)}.
+\]
+
+Puesto que $\Var(Y_k) = \alpha_i^2 \Var(X_k) + \beta_i^2$, sustituimos $\Var(Y_1)$ y $\Var(Y_2)$ en el numerador:
+\begin{align*}
+    \Var(X_1)\Var(Y_2) - \Var(X_2)\Var(Y_1) &= \Var(X_1)\big(\alpha_i^2 \Var(X_2) + \beta_i^2\big) - \Var(X_2)\big(\alpha_i^2 \Var(X_1) + \beta_i^2\big) \\
+    &= \cancel{\alpha_i^2 \Var(X_1)\Var(X_2)} + \beta_i^2 \Var(X_1) - \cancel{\alpha_i^2 \Var(X_1)\Var(X_2)} - \beta_i^2 \Var(X_2) \\
+    &= \beta_i^2 \big(\Var(X_1) - \Var(X_2)\big).
+\end{align*}
+Como $\Var(X_1) - \Var(X_2) = \bar{\alpha}_{i-1}^2 s_1^2 + \bar{\beta}_{i-1}^2 - (\bar{\alpha}_{i-1}^2 s_2^2 + \bar{\beta}_{i-1}^2) = \bar{\alpha}_{i-1}^2 (s_1^2 - s_2^2)$, obtenemos:
+\[
+\frac{\Var(X_1)}{\Var(Y_1)} - \frac{\Var(X_2)}{\Var(Y_2)} = \beta_i^2 \cdot \frac{\bar{\alpha}_{i-1}^2 (s_1^2 - s_2^2)}{\Var(Y_1)\Var(Y_2)}.
+\]
+
+Sustituyendo esto en la resta de las medias, el factor $\beta_i^2$ se extrae como factor común exacto de toda la expresión:
+\[
+\mu_{i-1\mid i, 1}(x_i) - \mu_{i-1\mid i, 2}(x_i) = \beta_i^2 \left[ \bar{\alpha}_{i-1} \left( \frac{m_1}{\Var(Y_1)} - \frac{m_2}{\Var(Y_2)} \right) + \frac{\alpha_i \bar{\alpha}_{i-1}^2 (s_1^2 - s_2^2)}{\Var(Y_1)\Var(Y_2)}\, x_i \right].
+\]
+
+Tomando valor absoluto y aplicando la desigualdad triangular:
+\[
+\big|\mu_{i-1\mid i, 1}(x_i) - \mu_{i-1\mid i, 2}(x_i)\big| \le \beta_i^2 \left[ \bar{\alpha}_{i-1} \left( \frac{|m_1|}{\Var(Y_1)} + \frac{|m_2|}{\Var(Y_2)} \right) + \frac{\alpha_i \bar{\alpha}_{i-1}^2 |s_1^2 - s_2^2|}{\Var(Y_1)\Var(Y_2)}\, |x_i| \right].
+\]
+
+Para acotar los denominadores independientemente de $i$, observemos que para cualquier componente $k \in \{1, 2\}$, como $\bar{\alpha}_i^2 + \bar{\beta}_i^2 = 1$:
+\[
+\Var(Y_k) = \bar{\alpha}_i^2 s_k^2 + \bar{\beta}_i^2 \ge \min\{s_k^2, 1\} \cdot (\bar{\alpha}_i^2 + \bar{\beta}_i^2) = \min\{s_k^2, 1\} > 0.
+\]
+
+Definiendo la constante estrictamente positiva $c_{\min} \coloneqq \min\{s_1^2, s_2^2, 1\} > 0$, se tiene $\Var(Y_k) \ge c_{\min}$. Usando además que $\bar{\alpha}_{i-1} \le 1$ y $\alpha_i \le 1$:
+\[
+\big|\mu_{i-1\mid i, 1}(x_i) - \mu_{i-1\mid i, 2}(x_i)\big| \le \beta_i^2 \left( \frac{|m_1| + |m_2|}{c_{\min}} + \frac{|s_1^2 - s_2^2|}{c_{\min}^2}\, |x_i| \right).
+\]
+
+Definiendo la constante finita:
+\[
+M(x_i) \coloneqq \frac{|m_1| + |m_2|}{c_{\min}} + \frac{|s_1^2 - s_2^2|}{c_{\min}^2}\, |x_i| < \infty,
+\]
+se concluye la desigualdad:
+\[
+\big|\mu_{i-1\mid i, 1}(x_i) - \mu_{i-1\mid i, 2}(x_i)\big| \le M(x_i) \cdot \beta_i^2.
+\]
+
+Esta cota demuestra que, al aumentar el número de pasos de difusión $L$ de modo que el ruido añadido en cada paso tienda a cero ($\beta_i^2 \to 0$), la separación entre las medias condicionales de ambas componentes converge a cero. En consecuencia, ambas campanas colapsan hacia la misma posición espacial $\mu^*(x_i)$, haciendo que la mezcla bimodal sea indistinguible de una única campana gaussiana.
+
+%----------------------------------------------------------------------
+\section{Conclusiones}
+%----------------------------------------------------------------------
+
+El análisis de este modelo unidimensional analíticamente resoluble permite extraer varias conclusiones teóricas sobre la naturaleza de los modelos de difusión:
+
+\begin{enumerate}
+    \item \textbf{Trazabilidad analítica frente a necesidad de aproximación:} 
+    En el caso general donde $x_0 \sim p_{\text{data}}$ es una distribución desconocida o de alta dimensión (como ocurre en imágenes con MNIST), el cálculo exacto de la distribución marginal $p_i(x_i)$ y de la distribución inversa $p(x_{i-1} \mid x_i)$ resulta intratable analíticamente. Al asumir aquí una mezcla explícita de gaussianas, la linealidad de las operaciones normales permite calcular de forma cerrada cada paso temporal tanto en el proceso hacia adelante como en el inverso.
+
+    \item \textbf{Naturaleza intrínseca del paso inverso:}
+    La distribución inversa teórica $p(x_{i-1} \mid x_i)$ hereda la estructura de los datos originales y, por tanto, \textbf{no es gaussiana}, sino otra mezcla ponderada de dos distribuciones normales donde los pesos corresponden a las probabilidades a posteriori bayesianas $\tilde{w}_k(x_i)$. Esto evidencia que la hipótesis gaussiana asumida comúnmente en la formulación de los DDPM es una aproximación paramétrica impuesta.
+
+    \item \textbf{Significado estadístico del aprendizaje en difusión:}
+    Al ajustar una distribución inversa gaussiana $p_\phi(x_{i-1} \mid x_i)$ mediante la minimización de la divergencia KL, la media óptima $\mu^*(x_i)$ coincide con la esperanza matemática condicional $\E[x_{i-1} \mid x_i]$. En el contexto del aprendizaje automático, esto significa que una red neuronal entrenada para predecir la media del paso inverso en un DDPM converge analíticamente al promedio condicional ponderado por la verosimilitud de cada componente.
+
+    \item \textbf{Fundamentación de la aproximación gaussiana:}
+    La cota explícita obtenida:
+    \[
+    \big|\mu_{i-1\mid i, 1}(x_i) - \mu_{i-1\mid i, 2}(x_i)\big| \le M(x_i) \cdot \beta_i^2,
+    \]
+    proporciona una justificación rigurosa del algoritmo estándar de difusión: cuando el esquema de ruido se diseña con un número elevado de pasos ($L \to \infty$) de forma que el ruido por paso es infinitesimal ($\beta_i^2 \to 0$), la discrepancia entre las componentes de la mezcla se anula linealmente con $\beta_i^2$. En este límite, la multimodalidad del paso inverso desaparece localmente y la transición elemental es asintóticamente normal, garantizando que el uso de una aproximación unimodal no degrade la convergencia del generador hacia la distribución de datos objetivo.
+\end{enumerate}
+\end{document}
